@@ -1,0 +1,136 @@
+version: '3.8'
+services:
+
+  # MySQL 和 phpMyAdmin
+  mysql:
+    image: mysql:8.0
+    container_name: my_mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - my_network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: my_phpmyadmin
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: root
+    networks:
+      - my_network
+
+  # Redis 和 Redis Commander
+  redis:
+    image: redis:latest
+    container_name: my_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - my_network
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: my_redis_commander
+    ports:
+      - "8082:8081"
+    environment:
+      REDIS_HOSTS: "local:redis:6379"
+    networks:
+      - my_network
+
+  # XXL-Job Admin
+  xxl-job-admin:
+    image: xuxueli/xxl-job-admin:2.3.0
+    container_name: my_xxl_job_admin
+    ports:
+      - "8083:8080"
+    environment:
+      PARAMS: "--spring.datasource.url=jdbc:mysql://mysql:3306/xxl_job?useUnicode=true&characterEncoding=UTF-8&useSSL=false --spring.datasource.username=root --spring.datasource.password=root"
+    depends_on:
+      - mysql
+    networks:
+      - my_network
+
+  # RocketMQ 和 Dashboard
+  namesrv:
+    image: apache/rocketmq:4.9.6
+    container_name: rmqnamesrv
+    ports:
+      - "9876:9876"
+    networks:
+      - my_network
+    command: sh mqnamesrv
+
+  broker:
+    image: apache/rocketmq:4.9.6
+    container_name: rmqbroker
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+      - "10912:10912"
+    environment:
+      - NAMESRV_ADDR=rmqnamesrv:9876
+    depends_on:
+      - namesrv
+    networks:
+      - my_network
+    volumes:
+      - ./config/rocketmq/single/broker.conf:/opt/rocketmq/conf/broker.conf
+    command: sh mqbroker -c /opt/rocketmq/conf/broker.conf
+
+  rocketmq-dashboard:
+    image: apacherocketmq/rocketmq-dashboard
+    container_name: my_rocketmq_dashboard
+    ports:
+      - "8084:8080"
+    environment:
+      JAVA_OPTS: "-Drocketmq.namesrv.addr=rmqnamesrv:9876"
+    depends_on:
+      - broker
+      - namesrv
+    networks:
+      - my_network
+
+  # Elasticsearch 和 Kibana
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.9
+    container_name: my_elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    networks:
+      - my_network
+    command: >
+      bash -c " elasticsearch-plugin install --batch file:///usr/share/elasticsearch/config/elasticsearch-analysis-ik-7.17.9.zip; chown -R elasticsearch:elasticsearch /usr/share/elasticsearch/data; su elasticsearch -c 'bin/elasticsearch'"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+      - ./config/elasticsearch/elasticsearch-analysis-ik-7.17.9.zip:/usr/share/elasticsearch/config/elasticsearch-analysis-ik-7.17.9.zip
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.9
+    container_name: my_kibana
+    ports:
+      - "5601:5601"
+    networks:
+      - my_network
+    depends_on:
+      - elasticsearch
+    environment:
+      I18N_LOCALE: zh-CN
+
+volumes:
+  mysql_data:
+  es_data:
+
+
+networks:
+  my_network:
